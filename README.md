@@ -9,22 +9,17 @@
 - UUPS 升级：工厂合约可升级（`contracts/AuctionFactoryUpgradeable.sol`）。
 - 拍卖工厂：类似 Uniswap v2 的工厂/实例模式（`contracts/AuctionFactoryUpgradeable.sol`、`contracts/AuctionInstance.sol`）。
 
-## 技术栈
-- `hardhat@^2.27.0`、`ethers@^6`、`@nomicfoundation/hardhat-ethers`、`@nomicfoundation/hardhat-chai-matchers`
-- `@openzeppelin/contracts@^5`、`@openzeppelin/contracts-upgradeable@^5`、`@openzeppelin/hardhat-upgrades`
-- `@chainlink/contracts`（接口与本地测试 Mock）
-- `hardhat-deploy`、`dotenv`
-
 ## 安装
-- 合约与脚本（根目录）：
+- 合约（根目录 contracts + scripts）：
   - `npm install`
-  - 编译：`npm run build`
+  - 编译：`npm run build`（含 `postbuild` 自动同步 ABI 到后端）
   - 测试：`npm run test`
-- 前端（React 在 `web/`）：
-  - `cd web && npm install`
+  - 手动同步 ABI：`npm run abi:sync`
+- 前端（React 在 `frontend/`）：
+  - `cd frontend && npm install`
   - 开发：`npm run dev`（默认 `http://localhost:5173/`）
-- 后端（Go 在 `go-server/`）：
-  - `cd go-server && go run .`（默认 `http://localhost:3000/`）
+- 后端（Go 在 `backend/`）：
+  - `cd backend && go run .`（默认 `http://localhost:3000/`）
 
 ## 前置依赖
 - Node.js 18+、npm
@@ -42,8 +37,8 @@
 - `contracts/mocks/TestToken.sol`：测试用 ERC20 代币。
 - `scripts/deployFactory.ts`：部署拍卖工厂并配置价格源。
 - `test/*.ts`：单元与集成测试（拍卖、工厂、升级）。
-- `go-server/`：Go 后端（Chi 路由，MySQL + Redis，链上读取，静态/ABI 服务）。
-- `web/`：React 前端（Vite，TS，ethers）。
+- `backend/`：Go 后端（Chi 路由，MySQL + Redis，链上读取，静态/ABI 服务）。
+- `frontend/`：React 前端（Vite，TS，ethers）。
 
 ## 环境变量
 根目录 `.env`（Hardhat 部署用）：
@@ -56,17 +51,17 @@ Go 后端（在进程环境或 `.env` 中配置）：
 - `RPC_URL`（必填）
 - `FACTORY_ADDRESS`（必填）
 
-React 前端（`web/.env.development`）：
+React 前端（`frontend/.env.development`）：
 - `VITE_API_URL`（默认 `http://localhost:3000`）
 - `VITE_FACTORY_ADDRESS`（工厂代理地址）
 
 示例（开发环境）：
 ```
-# web/.env.development
+# frontend/.env.development
 VITE_API_URL=http://localhost:3000
 VITE_FACTORY_ADDRESS=0xYourFactoryProxyHere
 
-# go-server/.env 或进程环境
+# backend/.env 或进程环境
 PORT=3000
 MYSQL_DSN=root:@tcp(127.0.0.1:3306)/nft_auction?parseTime=true&charset=utf8mb4
 REDIS_ADDR=127.0.0.1:6379
@@ -78,8 +73,8 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - 编译合约：`npm run build`
 - 测试合约：`npm run test`
 - 部署工厂：`npm run deployFactory:sepolia`
-- 启动 Go 后端：`cd go-server && go run .`
-- 启动 React 前端：`cd web && npm run dev`
+- 启动 Go 后端：`cd backend && go run .`
+- 启动 React 前端：`cd frontend && npm run dev`
 
 ## Hardhat 网络配置
 - 配置文件：`hardhat.config.ts`
@@ -143,13 +138,13 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - `POST /api/auctions`：注册拍卖（拍卖地址、NFT、TokenId、卖家、结束时间）
 - `GET /api/auctions/:address`：链上读取拍卖实例状态
 - `GET /api/prices`：从工厂读取 ETH/USD 价格，Redis 缓存 30s
-- `GET /abi/factory`：返回工厂合约 ABI（供前端使用）
+- `GET /abi/factory`、`GET /abi/auction`、`GET /abi/erc20`：返回最小 ABI（供前端使用）
 
 ## 本地开发步骤
 - 设置后端环境变量：`RPC_URL` 与 `FACTORY_ADDRESS`
-- 启动 Go 后端：`cd go-server && go run .`
-- 设置前端 `web/.env.development`：填写 `VITE_API_URL` 与 `VITE_FACTORY_ADDRESS`
-- 启动 React 前端：`cd web && npm run dev`
+- 启动 Go 后端：`cd backend && go run .`
+- 设置前端 `frontend/.env.development`：填写 `VITE_API_URL` 与 `VITE_FACTORY_ADDRESS`
+- 启动 React 前端：`cd frontend && npm run dev`
 - 通过前端连接钱包、在工厂创建拍卖，前端会将拍卖信息写入后端；列表与价格可实时查看。
 
 ## 数据库初始化（MySQL）
@@ -166,9 +161,3 @@ CREATE TABLE IF NOT EXISTS auctions (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
-
-## 测试指南
-- 运行：`npm run test`
-- 测试内容：拍卖出价与结算、工厂创建与实例交互、UUPS 升级流程
-- 添加自定义测试：在 `test/` 下新增文件，复用现有工具与部署模式
-- 常见测试变量：Chainlink Mock、ERC20 测试代币、时间推进（EVM 时间控制）
