@@ -6,7 +6,9 @@
   "scripts": {
     "build": "hardhat compile",
     "test": "hardhat test",
-    "deployFactory:sepolia": "hardhat run --network sepolia scripts/deployFactory.ts"
+    "deployFactory:sepolia": "hardhat run --network sepolia scripts/deployFactory.ts",
+    "postbuild": "node scripts/syncAbi.js",
+    "abi:sync": "node scripts/syncAbi.js"
   },
   "keywords": [],
   "author": "",
