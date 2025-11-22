@@ -133,6 +133,7 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - 连接钱包 → 输入 `NFT 地址`、`TokenId`、`时长（秒）` → 调用工厂 `createAuction`
 - 前端解析 `AuctionCreated` 事件获取拍卖地址 → 调用后端 `POST /api/auctions` 注册元数据
 - 列表与价格通过后端刷新显示
+- 出价
 
 ## 测试覆盖
 - 工厂创建拍卖、出价与结算：`test/factory.test.ts`

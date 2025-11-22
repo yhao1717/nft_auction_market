@@ -3,6 +3,15 @@ import { ethers } from 'ethers'
 
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 const factoryAddress = import.meta.env.VITE_FACTORY_ADDRESS || ''
+const instanceAbi = [
+  'function bidWithETH() payable',
+  'function bidWithERC20(address token,uint256 amount)',
+  'function endAuction()',
+]
+const erc20Abi = [
+  'function decimals() view returns (uint8)',
+  'function approve(address spender,uint256 amount) returns (bool)'
+]
 
 export default function App() {
   const [account, setAccount] = useState<string>('')
@@ -12,6 +21,10 @@ export default function App() {
   const [auctions, setAuctions] = useState<any[]>([])
   const [status, setStatus] = useState('')
   const [ethUsd, setEthUsd] = useState('')
+  const [ethBidByAddr, setEthBidByAddr] = useState<Record<string,string>>({})
+  const [erc20AddrByAuction, setErc20AddrByAuction] = useState<Record<string,string>>({})
+  const [erc20AmtByAuction, setErc20AmtByAuction] = useState<Record<string,string>>({})
+  const [chainStates, setChainStates] = useState<Record<string, any>>({})
 
   useEffect(() => { loadAuctions() }, [])
 
@@ -26,6 +39,12 @@ export default function App() {
     const res = await fetch(`${apiUrl}/api/auctions`)
     const list = await res.json()
     setAuctions(list)
+    try {
+      const states = await Promise.all(list.map((a: any) => fetch(`${apiUrl}/api/auctions/${a.auction_address}`).then(r=>r.json()).catch(()=>null)))
+      const map: Record<string, any> = {}
+      list.forEach((a: any, i: number) => { map[a.auction_address] = states[i] })
+      setChainStates(map)
+    } catch {}
   }
 
   async function createAuction() {
@@ -47,6 +66,73 @@ export default function App() {
     } catch (e: any) {
       alert(e?.message || String(e))
     }
+  }
+
+  async function bidWithETH(auctionAddress: string) {
+    const amt = ethBidByAddr[auctionAddress]
+    if (!amt || Number(amt) <= 0) { alert('请输入 ETH 数量'); return }
+    const ethereum = (window as any).ethereum
+    if (!ethereum) { alert('请安装 MetaMask'); return }
+    const provider = new ethers.BrowserProvider(ethereum)
+    const signer = await provider.getSigner()
+    const inst = new ethers.Contract(auctionAddress, instanceAbi, signer)
+    try {
+      const tx = await inst.bidWithETH({ value: ethers.parseEther(amt) })
+      setStatus(`ETH 出价发送: ${tx.hash}`)
+      await tx.wait()
+      setStatus('ETH 出价成功')
+    } catch (e: any) {
+      alert(e?.message || String(e))
+    }
+  }
+
+  async function bidWithERC20(auctionAddress: string) {
+    const token = erc20AddrByAuction[auctionAddress]
+    const amt = erc20AmtByAuction[auctionAddress]
+    if (!token) { alert('请输入 ERC20 代币地址'); return }
+    if (!amt || Number(amt) <= 0) { alert('请输入 ERC20 数量'); return }
+    const ethereum = (window as any).ethereum
+    if (!ethereum) { alert('请安装 MetaMask'); return }
+    const provider = new ethers.BrowserProvider(ethereum)
+    const signer = await provider.getSigner()
+    const inst = new ethers.Contract(auctionAddress, instanceAbi, signer)
+    const erc20 = new ethers.Contract(token, erc20Abi, signer)
+    try {
+      const decimals: number = await erc20.decimals()
+      const amount = ethers.parseUnits(amt, decimals)
+      const tx1 = await erc20.approve(auctionAddress, amount)
+      setStatus(`Approve 发送: ${tx1.hash}`)
+      await tx1.wait()
+      const tx2 = await inst.bidWithERC20(token, amount)
+      setStatus(`ERC20 出价发送: ${tx2.hash}`)
+      await tx2.wait()
+      setStatus('ERC20 出价成功')
+    } catch (e: any) {
+      alert(e?.message || String(e))
+    }
+  }
+
+  async function endAuction(auctionAddress: string) {
+    const ethereum = (window as any).ethereum
+    if (!ethereum) { alert('请安装 MetaMask'); return }
+    const provider = new ethers.BrowserProvider(ethereum)
+    const signer = await provider.getSigner()
+    const inst = new ethers.Contract(auctionAddress, instanceAbi, signer)
+    try {
+      const tx = await inst.endAuction()
+      setStatus(`结束交易发送: ${tx.hash}`)
+      await tx.wait()
+      setStatus('拍卖已结束并结算')
+    } catch (e: any) {
+      alert(e?.message || String(e))
+    }
+  }
+
+  async function refreshAuctionState(addr: string) {
+    try {
+      const st = await (await fetch(`${apiUrl}/api/auctions/${addr}`)).json()
+      setChainStates(prev => ({ ...prev, [addr]: st }))
+    } catch {}
   }
 
   async function fetchPrice() {
@@ -92,6 +178,41 @@ export default function App() {
             拍卖地址: {a.auction_address}<br/>
             NFT: {a.nft_address} #{a.token_id}<br/>
             结束: {new Date(a.end_time*1000).toLocaleString()}
+            <div style={{ marginTop:6, color:'#333' }}>
+              <div>最高美元: {chainStates[a.auction_address]?.highestUsd ?? '-'}</div>
+              <div>最高出价人: {chainStates[a.auction_address]?.highestBidder ?? '-'}</div>
+              <div>币种: {chainStates[a.auction_address]?.highestCurrency === ethers.ZeroAddress ? 'ETH' : (chainStates[a.auction_address]?.highestCurrency || '-')}</div>
+              <div>已结算: {chainStates[a.auction_address]?.settled ? '是' : '否'}</div>
+              <button onClick={()=>refreshAuctionState(a.auction_address)} style={{ marginTop:6 }}>刷新状态</button>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:8 }}>
+              <div>
+                <label>ETH 出价</label>
+                <input
+                  value={ethBidByAddr[a.auction_address] || ''}
+                  onChange={e=>setEthBidByAddr(prev=>({ ...prev, [a.auction_address]: e.target.value }))}
+                  placeholder="0.1"
+                />
+                <button onClick={()=>bidWithETH(a.auction_address)}>用ETH出价</button>
+              </div>
+              <div>
+                <label>ERC20 出价</label>
+                <input
+                  value={erc20AddrByAuction[a.auction_address] || ''}
+                  onChange={e=>setErc20AddrByAuction(prev=>({ ...prev, [a.auction_address]: e.target.value }))}
+                  placeholder="代币地址 0x..."
+                />
+                <input
+                  value={erc20AmtByAuction[a.auction_address] || ''}
+                  onChange={e=>setErc20AmtByAuction(prev=>({ ...prev, [a.auction_address]: e.target.value }))}
+                  placeholder="数量，如 800"
+                />
+                <button onClick={()=>bidWithERC20(a.auction_address)}>用ERC20出价</button>
+              </div>
+            </div>
+            <div style={{ marginTop:8 }}>
+              <button onClick={()=>endAuction(a.auction_address)}>结束并结算</button>
+            </div>
           </div>
         ))}
       </section>
