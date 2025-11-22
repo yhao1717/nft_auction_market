@@ -122,24 +122,6 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - `GET /abi/factory`
   - 响应：工厂合约 ABI（供前端调用工厂创建拍卖）
 
-## 合约接口要点（工厂）
-- 读取价格源：
-  - `ethUsdFeed() -> address`
-  - `tokenUsdFeed(token: address) -> address`
-- 配置价格源：
-  - `setEthUsdFeed(feed: address)`
-  - `setTokenUsdFeed(token: address, feed: address)`
-- 创建拍卖：
-  - `createAuction(nft: address, tokenId: uint256, durationSeconds: uint256) -> address`
-- 事件：
-  - `AuctionCreated(auction, seller, nft, tokenId, endTime)`（前端解析该事件获取实例地址）
-
-## 价格源配置示例（Sepolia）
-- 前提：已部署工厂并拿到工厂代理地址；准备好 Chainlink Aggregator 地址。
-- 设置 ETH/USD：调用 `setEthUsdFeed(ETH_USD_AGGREGATOR)`
-- 设置某 ERC20/USD：调用 `setTokenUsdFeed(ERC20, ERC20_USD_AGGREGATOR)`
-- 注意：地址请以 Chainlink 官方文档为准，避免旧地址；生产环境建议只允许已配置价格源的代币参与。
-
 ## 交互与工厂流程
 1. 部署工厂：`npm run deployFactory:sepolia`（需设置 `ETH_USD_FEED`，可选配置某 ERC20 的 `ERC20_USD_FEED`）。
 2. 卖家授权：在 NFT 合约对工厂地址进行 `approve`，允许工厂转移该 `tokenId`。
@@ -152,17 +134,8 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - 前端解析 `AuctionCreated` 事件获取拍卖地址 → 调用后端 `POST /api/auctions` 注册元数据
 - 列表与价格通过后端刷新显示
 
-## 升级说明（UUPS）
-- 工厂合约通过 `_authorizeUpgrade` 限制为 `owner`。
-
 ## 测试覆盖
 - 工厂创建拍卖、出价与结算：`test/factory.test.ts`
-
-## 注意事项
-- Chainlink USD 价格通常按 8 位小数，出价换算结果也按 8 位小数管理。
-- 合约已使用防重入保护，退款与结算分别支持 ETH 与 ERC20 路径。
-- 生产部署务必设置正确的 Aggregator 地址，并酌情限制允许出价的代币。
-- 建议仅白名单允许的 ERC20；无价格源的代币拒绝出价。
 
 ## 后端 API
 - `GET /api/auctions`：列出拍卖元数据（MySQL）
@@ -177,11 +150,6 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - 设置前端 `web/.env.development`：填写 `VITE_API_URL` 与 `VITE_FACTORY_ADDRESS`
 - 启动 React 前端：`cd web && npm run dev`
 - 通过前端连接钱包、在工厂创建拍卖，前端会将拍卖信息写入后端；列表与价格可实时查看。
-
-## 常见问题
-- `GET /api/prices` 返回错误：检查后端是否设置 `RPC_URL` 与 `FACTORY_ADDRESS`，以及工厂是否已配置 ETH/USD Aggregator
-- 前端创建拍卖失败：确保钱包已连接、`VITE_FACTORY_ADDRESS` 正确、卖家已对工厂 `approve` 指定 `tokenId`
-- 单位换算：价格按 8 位小数；ERC20 出价会根据 `decimals()` 做单位对齐
 
 ## 数据库初始化（MySQL）
 ```sql
@@ -198,60 +166,8 @@ CREATE TABLE IF NOT EXISTS auctions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-## 全流程联调步骤
-- 部署工厂：`npm run deployFactory:sepolia`，记录工厂代理地址。
-- 配置价格源：运行 `scripts/configFeeds.ts` 设置 `ETH_USD_FEED`，可选设置某 ERC20 的 USD Aggregator。
-- 启动后端：设置 `RPC_URL/FACTORY_ADDRESS`，启动 `go-server`。
-- 配置前端：设置 `VITE_API_URL/VITE_FACTORY_ADDRESS`，启动 `web`。
-- 前端创建拍卖：解析事件、向后端 `POST /api/auctions` 注册。
-- 出价与结束：前端调用实例合约；后端 `GET /api/auctions/:address` 查看链上状态。
-
-## 快速上手（Step-by-step）
-- 准备 `.env`（根目录）：填写 `SEPOLIA_RPC_URL`、`PRIVATE_KEY`、`ETH_USD_FEED`
-- 部署工厂：`npm run deployFactory:sepolia`，记录工厂代理地址
-- 配置价格源：运行配置脚本或在工厂上直接调用 `setEthUsdFeed`、`setTokenUsdFeed`
-- 启动后端：设置 `RPC_URL` 与 `FACTORY_ADDRESS`，执行 `cd go-server && go run .`
-- 启动前端：设置 `VITE_API_URL` 与 `VITE_FACTORY_ADDRESS`，执行 `cd web && npm run dev`
-- 创建拍卖：前端填写 `NFT 地址/TokenId/时长（秒）`，调用工厂创建；随后在后端注册拍卖元数据
-
 ## 测试指南
 - 运行：`npm run test`
 - 测试内容：拍卖出价与结算、工厂创建与实例交互、UUPS 升级流程
 - 添加自定义测试：在 `test/` 下新增文件，复用现有工具与部署模式
 - 常见测试变量：Chainlink Mock、ERC20 测试代币、时间推进（EVM 时间控制）
-
-## Windows 环境注意事项
-- PowerShell 运行命令：确保在对应目录执行，如 `cd web` 后再运行 `npm run dev`
-- 环境变量：在 Windows 下可使用临时环境设定或 `.env` 文件；Hardhat 读取根目录 `.env`
-- MySQL/Redis：建议用本地服务或 Docker；确保端口与 `MYSQL_DSN`、`REDIS_ADDR` 配置一致
-
-## 事件解析与地址获取
-- 工厂事件解析：前端使用 `ethers.Interface` 解析 `AuctionCreated(auction, seller, nft, tokenId, endTime)` 获取实例地址
-- 参考实现：`web/src/App.tsx` 中事件解析逻辑（创建拍卖后读取日志）
-- 后端注册：拿到实例地址后请求 `POST /api/auctions` 存储拍卖元数据
-
-## 升级细节（UUPS）
-- 单体拍卖与工厂可升级，实例合约为简单不可升级版本，降低复杂度
-- 升级脚本：`scripts/upgrade.ts` 使用 `upgrades.upgradeProxy` 执行升级（`scripts/upgrade.ts:4-11`）
-- 存储布局：升级需保持变量布局兼容；遵循 OpenZeppelin 的布局校验
-
-## RPC 与 Gas 建议
-- RPC 限速：公共 RPC 可能限速；生产建议使用稳定服务提供商并加入重试/退避策略
-- Gas 设置：前端出价可显式设置 `gasLimit`；ERC20 出价需考虑 `approve` 与 `bidWithERC20` 两笔交易
-- 小数单位：价格与出价单位换算严格按 Chainlink 与代币 `decimals()` 处理
-- 部署工厂：
-  - 前提：设置 `ETH_USD_FEED`（可选：`ERC20_TOKEN`、`ERC20_USD_FEED`）
-  - 命令：`npm run deployFactory:sepolia`
-  - 输出：工厂代理地址；若提供 ERC20 配置则自动写入价格源
-  - 合约脚本位置：`scripts/deployFactory.ts`
-
-## 版本要求与兼容性
-- Hardhat `^2.27.0` 与 `ethers ^6`，插件版本已在 `package.json` 固定。
-- OpenZeppelin 合约与升级插件使用 `^5` 系列，Solidity `0.8.22`。
-- React 前端使用 Vite 5 与 React 18；Go 后端需 Go 1.20+。
-
-## 合规与安全
-- 生产环境禁用未授权代币参与：仅对白名单代币配置价格源并在合约中限制。
-- 管理密钥与 RPC：私钥仅用于 Hardhat 部署，不在后端与前端中存储；后端只进行读取，不签名交易。
-- 价格源可信性：所有美元换算基于 Chainlink Aggregator；在无价格源或读取失败时拒绝相关出价。
-- UUPS 升级权限：仅 `owner` 可升级；升级前建议进行影子部署与回归测试。
