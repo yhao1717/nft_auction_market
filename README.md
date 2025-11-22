@@ -37,7 +37,7 @@
 - `contracts/mocks/TestToken.sol`：测试用 ERC20 代币。
 - `scripts/deployFactory.ts`：部署拍卖工厂并配置价格源。
 - `test/*.ts`：单元与集成测试（拍卖、工厂、升级）。
-- `backend/`：Go 后端（Chi 路由，MySQL + Redis，链上读取，静态/ABI 服务）。
+- `backend/`：Go 后端（Gin + Gorm，MySQL + Redis，链上读取，静态/ABI 服务）。
 - `frontend/`：React 前端（Vite，TS，ethers）。
 
 ## 环境变量
@@ -133,7 +133,7 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 ## 测试覆盖
 - 工厂创建拍卖、出价与结算：`test/factory.test.ts`
 
-## 后端 API
+## 后端 API（Gin + Gorm）
 - `GET /api/auctions`：列出拍卖元数据（MySQL）
 - `POST /api/auctions`：注册拍卖（拍卖地址、NFT、TokenId、卖家、结束时间）
 - `GET /api/auctions/:address`：链上读取拍卖实例状态
@@ -145,6 +145,8 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - 启动 Go 后端：`cd backend && go run .`
 - 设置前端 `frontend/.env.development`：填写 `VITE_API_URL` 与 `VITE_FACTORY_ADDRESS`
 - 启动 React 前端：`cd frontend && npm run dev`
+
+提示：后端使用 Gin 默认开启 CORS 允许所有来源；数据层使用 Gorm 自动迁移 `Auction` 表结构。
 - 通过前端连接钱包、在工厂创建拍卖，前端会将拍卖信息写入后端；列表与价格可实时查看。
 
 ## 数据库初始化（MySQL）
