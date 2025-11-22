@@ -6,8 +6,6 @@
   "scripts": {
     "build": "hardhat compile",
     "test": "hardhat test",
-    "deploy:sepolia": "hardhat run --network sepolia scripts/deploy.ts",
-    "upgrade:sepolia": "hardhat run --network sepolia scripts/upgrade.ts",
     "deployFactory:sepolia": "hardhat run --network sepolia scripts/deployFactory.ts"
   },
   "keywords": [],

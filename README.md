@@ -1,12 +1,12 @@
-# NFT 拍卖市场（Hardhat + UUPS + Chainlink）
+# NFT 拍卖市场（工厂模式 + UUPS 工厂 + Chainlink）
 
 一个支持 NFT 拍卖（ETH/ERC20 出价）的合约项目，集成 Chainlink 价格预言机，将出价统一换算为美元进行比较；采用 UUPS 可升级模式；同时提供类似 Uniswap v2 的“拍卖工厂”合约，用于创建与管理独立的拍卖实例。
 
 ## 特性
 - ERC721 NFT 合约，支持铸造与转移（`contracts/NFT.sol`）。
-- 拍卖合约：支持创建拍卖、ETH/ERC20 出价、结束与结算（`contracts/AuctionUpgradeable.sol`）。
+- 拍卖实例：支持 ETH/ERC20 出价、结束与结算（`contracts/AuctionInstance.sol`）。
 - Chainlink 预言机：获取 ETH/USD 与 ERC20/USD 价格，统一按美元比较出价。
-- UUPS 升级：拍卖主合约与工厂合约可升级（`contracts/AuctionUpgradeableV2.sol`、`contracts/AuctionFactoryUpgradeable.sol`）。
+- UUPS 升级：工厂合约可升级（`contracts/AuctionFactoryUpgradeable.sol`）。
 - 拍卖工厂：类似 Uniswap v2 的工厂/实例模式（`contracts/AuctionFactoryUpgradeable.sol`、`contracts/AuctionInstance.sol`）。
 
 ## 技术栈
@@ -36,14 +36,10 @@
 
 ## 目录结构
 - `contracts/NFT.sol`：ERC721 NFT 合约。
-- `contracts/AuctionUpgradeable.sol`：UUPS 拍卖主合约（单体版本）。
-- `contracts/AuctionUpgradeableV2.sol`：拍卖升级版本示例（`version()`）。
 - `contracts/AuctionFactoryUpgradeable.sol`：UUPS 拍卖工厂，创建并注册拍卖实例，维护价格源。
 - `contracts/AuctionInstance.sol`：独立拍卖实例，读取工厂的价格源进行出价比较与结算。
 - `contracts/mocks/MockImports.sol`：引入 Chainlink `MockV3Aggregator` 用于本地测试。
 - `contracts/mocks/TestToken.sol`：测试用 ERC20 代币。
-- `scripts/deploy.ts`：部署 NFT 与单体拍卖合约。
-- `scripts/upgrade.ts`：UUPS 代理升级脚本。
 - `scripts/deployFactory.ts`：部署拍卖工厂并配置价格源。
 - `test/*.ts`：单元与集成测试（拍卖、工厂、升级）。
 - `go-server/`：Go 后端（Chi 路由，MySQL + Redis，链上读取，静态/ABI 服务）。
@@ -81,8 +77,6 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 ## 命令
 - 编译合约：`npm run build`
 - 测试合约：`npm run test`
-- 部署单体拍卖：`npm run deploy:sepolia`
-- 升级单体拍卖：`npm run upgrade:sepolia`
 - 部署工厂：`npm run deployFactory:sepolia`
 - 启动 Go 后端：`cd go-server && go run .`
 - 启动 React 前端：`cd web && npm run dev`
@@ -158,20 +152,11 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - 前端解析 `AuctionCreated` 事件获取拍卖地址 → 调用后端 `POST /api/auctions` 注册元数据
 - 列表与价格通过后端刷新显示
 
-## 单体拍卖使用流程
-- 初始化拍卖合约：部署 UUPS 代理，设置价格源（ETH 与需要的 ERC20）。
-- 卖家授权：对拍卖合约 `approve` 后 `createAuction(nft, tokenId, duration)`。
-- 出价/结束与结算：同工厂模式。
-
 ## 升级说明（UUPS）
-- 所有 UUPS 合约通过 `_authorizeUpgrade` 限制为 `owner`。
-- 升级脚本示例：`scripts/upgrade.ts`，执行 `npm run upgrade:sepolia` 进行代理升级（需设置 `PROXY_ADDRESS`）。
-- 变更存储布局需谨慎，建议使用升级插件的校验保持兼容。
+- 工厂合约通过 `_authorizeUpgrade` 限制为 `owner`。
 
 ## 测试覆盖
-- 拍卖出价与结算（ETH 与 ERC20，美元换算对比）：`test/auction.test.ts`
 - 工厂创建拍卖、出价与结算：`test/factory.test.ts`
-- UUPS 升级流程验证：`test/upgrade.test.ts`
 
 ## 注意事项
 - Chainlink USD 价格通常按 8 位小数，出价换算结果也按 8 位小数管理。
@@ -193,103 +178,10 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - 启动 React 前端：`cd web && npm run dev`
 - 通过前端连接钱包、在工厂创建拍卖，前端会将拍卖信息写入后端；列表与价格可实时查看。
 
-## 前端交互示例（创建拍卖）
-```ts
-import { ethers } from "ethers";
-
-async function createAuction(factoryAddress: string, nft: string, tokenId: number, duration: number) {
-  const provider = new ethers.BrowserProvider((window as any).ethereum);
-  const signer = await provider.getSigner();
-  const abi = (await (await fetch("http://localhost:3000/abi/factory")).json()).abi;
-  const factory = new ethers.Contract(factoryAddress, abi, signer);
-  const tx = await factory.createAuction(nft, tokenId, duration);
-  const receipt = await tx.wait();
-  const iface = new ethers.Interface(abi);
-  let auctionAddress = "";
-  for (const l of (receipt as any).logs || []) {
-    try {
-      const parsed = iface.parseLog(l);
-      if (parsed?.name === "AuctionCreated") { auctionAddress = parsed.args[0]; break; }
-    } catch {}
-  }
-  return auctionAddress;
-}
-```
-
-## 部署建议（生产）
-- 前端构建：`cd web && npm run build` 生成 `web/dist`
-- 后端服务：以系统服务方式运行 `go-server`，在环境中配置 `RPC_URL/FACTORY_ADDRESS` 与数据库、缓存地址
-- 反向代理：使用 Nginx 或其他代理将前端与后端统一到同一域名
-- 价格源与代币白名单：在工厂配置允许的代币与其 Chainlink Aggregator 地址，避免无预言机代币参与
-- 升级流程管理：UUPS 升级仅限 `owner`，升级前进行影子部署与回归测试
-
 ## 常见问题
 - `GET /api/prices` 返回错误：检查后端是否设置 `RPC_URL` 与 `FACTORY_ADDRESS`，以及工厂是否已配置 ETH/USD Aggregator
 - 前端创建拍卖失败：确保钱包已连接、`VITE_FACTORY_ADDRESS` 正确、卖家已对工厂 `approve` 指定 `tokenId`
 - 单位换算：价格按 8 位小数；ERC20 出价会根据 `decimals()` 做单位对齐
-
-## 价格源配置脚本示例（Hardhat）
-```ts
-// scripts/configFeeds.ts
-import { ethers } from "hardhat";
-
-async function main() {
-  const factoryAddress = process.env.FACTORY_ADDRESS!;
-  const ETH_USD = process.env.ETH_USD_FEED!; // Chainlink ETH/USD
-  const TOKEN = process.env.ERC20_TOKEN;     // 可选：某 ERC20
-  const TOKEN_USD = process.env.ERC20_USD_FEED; // 可选：该 Token 的 USD Aggregator
-
-  const [deployer] = await ethers.getSigners();
-  const factory = await ethers.getContractAt("AuctionFactoryUpgradeable", factoryAddress, deployer);
-
-  console.log("setEthUsdFeed", ETH_USD);
-  await (await factory.setEthUsdFeed(ETH_USD)).wait();
-
-  if (TOKEN && TOKEN_USD) {
-    console.log("setTokenUsdFeed", TOKEN, TOKEN_USD);
-    await (await factory.setTokenUsdFeed(TOKEN, TOKEN_USD)).wait();
-  }
-}
-
-main().catch((e) => { console.error(e); process.exitCode = 1; });
-```
-运行：`FACTORY_ADDRESS=0x... ETH_USD_FEED=0x... ERC20_TOKEN=0x... ERC20_USD_FEED=0x... npx hardhat run --network sepolia scripts/configFeeds.ts`
-
-## 前端交互示例（出价与结束）
-```ts
-import { ethers } from "ethers";
-
-async function bidWithETH(auction: string, ethAmount: string) {
-  const provider = new ethers.BrowserProvider((window as any).ethereum);
-  const signer = await provider.getSigner();
-  const abi = (await (await fetch("/artifacts/contracts/AuctionInstance.sol/AuctionInstance.json")).json()).abi;
-  const inst = new ethers.Contract(auction, abi, signer);
-  const value = ethers.parseEther(ethAmount);
-  return await (await inst.bidWithETH({ value })).wait();
-}
-
-async function bidWithERC20(auction: string, token: string, amount: string) {
-  const provider = new ethers.BrowserProvider((window as any).ethereum);
-  const signer = await provider.getSigner();
-  const instAbi = (await (await fetch("/artifacts/contracts/AuctionInstance.sol/AuctionInstance.json")).json()).abi;
-  const erc20Abi = ["function approve(address spender,uint256 amount)", "function decimals() view returns (uint8)"];
-  const inst = new ethers.Contract(auction, instAbi, signer);
-  const erc = new ethers.Contract(token, erc20Abi, signer);
-  const decimals = await erc.decimals();
-  const parsed = ethers.parseUnits(amount, decimals);
-  await (await erc.approve(auction, parsed)).wait();
-  return await (await inst.bidWithERC20(token, parsed)).wait();
-}
-
-async function endAuction(auction: string) {
-  const provider = new ethers.BrowserProvider((window as any).ethereum);
-  const signer = await provider.getSigner();
-  const abi = (await (await fetch("/artifacts/contracts/AuctionInstance.sol/AuctionInstance.json")).json()).abi;
-  const inst = new ethers.Contract(auction, abi, signer);
-  return await (await inst.endAuction()).wait();
-}
-```
-说明：也可由后端提供 `GET /abi/auction` 端点，前端改为从后端读取实例 ABI。
 
 ## 数据库初始化（MySQL）
 ```sql
@@ -347,15 +239,6 @@ CREATE TABLE IF NOT EXISTS auctions (
 - RPC 限速：公共 RPC 可能限速；生产建议使用稳定服务提供商并加入重试/退避策略
 - Gas 设置：前端出价可显式设置 `gasLimit`；ERC20 出价需考虑 `approve` 与 `bidWithERC20` 两笔交易
 - 小数单位：价格与出价单位换算严格按 Chainlink 与代币 `decimals()` 处理
-## 部署脚本使用指南
-- 部署单体拍卖与 NFT：
-  - 前提：设置 `SEPOLIA_RPC_URL`、`PRIVATE_KEY`、`ETH_USD_FEED`
-  - 命令：`npm run deploy:sepolia`
-  - 输出：`NFT` 地址与 `AuctionUpgradeable` 代理地址
-- 升级单体拍卖代理：
-  - 前提：设置 `PROXY_ADDRESS`
-  - 命令：`npm run upgrade:sepolia`
-  - 输出：升级后的代理地址与 `version()`
 - 部署工厂：
   - 前提：设置 `ETH_USD_FEED`（可选：`ERC20_TOKEN`、`ERC20_USD_FEED`）
   - 命令：`npm run deployFactory:sepolia`
