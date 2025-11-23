@@ -147,6 +147,16 @@ FACTORY_ADDRESS=0xYourFactoryProxyHere
 - 启动 React 前端：`cd frontend && npm run dev`
 
 提示：后端使用 Gin 默认开启 CORS 允许所有来源；数据层使用 Gorm 自动迁移 `Auction` 表结构。
+
+## 预览与架构
+
+界面截图：
+
+![NFT拍卖市场界面](frontend/public/readme-ui.png)
+
+技术架构：
+
+![技术架构](frontend/public/readme-arch.png)
 - 通过前端连接钱包、在工厂创建拍卖，前端会将拍卖信息写入后端；列表与价格可实时查看。
 
 ## 数据库初始化（MySQL）
