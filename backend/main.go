@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math/big"
 	"os"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/gin-gonic/gin"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/redis/go-redis/v9"
@@ -40,6 +44,7 @@ func main() {
 		chain, _ = NewChain(rpc, factory)
 	}
 	srv := &Server{db: db, rdb: rdb, chain: chain}
+	srv.runEventSubscriptions()
 
 	r := gin.Default()
 	r.Use(func(c *gin.Context) {
@@ -165,4 +170,91 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func (s *Server) runEventSubscriptions() {
+	if s.chain == nil {
+		return
+	}
+	go s.subscribeFactory()
+	go s.subscribeKnownInstances()
+}
+
+func (s *Server) subscribeFactory() {
+	ctx := context.Background()
+	ev := s.chain.factoryABI.Events["AuctionCreated"].ID
+	q := ethereum.FilterQuery{Addresses: []common.Address{s.chain.factory}, Topics: [][]common.Hash{{ev}}}
+	ch := make(chan types.Log, 128)
+	sub, err := s.chain.cli.SubscribeFilterLogs(ctx, q, ch)
+	if err != nil {
+		s.pollFactory(ctx, ev)
+		return
+	}
+	for {
+		select {
+		case l := <-ch:
+			log.Printf("AuctionCreated addr=%s tx=%s", l.Address.Hex(), l.TxHash.Hex())
+		case err := <-sub.Err():
+			log.Printf("factory sub error: %v", err)
+			return
+		}
+	}
+}
+
+func (s *Server) subscribeKnownInstances() {
+	var rows []Auction
+	if err := s.db.Find(&rows).Error; err != nil {
+		return
+	}
+	for _, a := range rows {
+		addr := common.HexToAddress(a.AuctionAddress)
+		go s.subscribeInstance(addr)
+	}
+}
+
+func (s *Server) subscribeInstance(addr common.Address) {
+	ctx := context.Background()
+	bid := s.chain.auctionABI.Events["BidPlaced"].ID
+	end := s.chain.auctionABI.Events["AuctionEnded"].ID
+	q := ethereum.FilterQuery{Addresses: []common.Address{addr}, Topics: [][]common.Hash{{bid, end}}}
+	ch := make(chan types.Log, 128)
+	sub, err := s.chain.cli.SubscribeFilterLogs(ctx, q, ch)
+	if err != nil {
+		return
+	}
+	for {
+		select {
+		case l := <-ch:
+			if len(l.Topics) > 0 && l.Topics[0] == bid {
+				log.Printf("BidPlaced auction=%s tx=%s", addr.Hex(), l.TxHash.Hex())
+			} else if len(l.Topics) > 0 && l.Topics[0] == end {
+				log.Printf("AuctionEnded auction=%s tx=%s", addr.Hex(), l.TxHash.Hex())
+			}
+		case err := <-sub.Err():
+			log.Printf("instance sub error: %v", err)
+			return
+		}
+	}
+}
+
+func (s *Server) pollFactory(ctx context.Context, ev common.Hash) {
+	var last uint64
+	for {
+		head, err := s.chain.cli.BlockNumber(ctx)
+		if err != nil {
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		if head > last {
+			q := ethereum.FilterQuery{FromBlock: big.NewInt(int64(last + 1)), ToBlock: big.NewInt(int64(head)), Addresses: []common.Address{s.chain.factory}, Topics: [][]common.Hash{{ev}}}
+			logs, err := s.chain.cli.FilterLogs(ctx, q)
+			if err == nil {
+				for _, l := range logs {
+					log.Printf("AuctionCreated addr=%s tx=%s", l.Address.Hex(), l.TxHash.Hex())
+				}
+			}
+			last = head
+		}
+		time.Sleep(10 * time.Second)
+	}
 }
